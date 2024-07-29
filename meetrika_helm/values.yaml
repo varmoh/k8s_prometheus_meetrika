@@ -1,0 +1,23 @@
+replicaCount: 1
+
+image:
+  repository: your-image-repo # Add the actual image repository URL
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  name: ""
+  nginx:
+    enabled: false
+  path: /meetrika
+  host: ""  # Change it accordingly
+  tls:
+    - secretName: my-tls-secret
+  annotations: {}
+
+resources: {}

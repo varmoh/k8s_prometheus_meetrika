@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Metrics Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
+    <style>
+        .collapse-button {
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        .table-container, .chart-container, .network-container {
+            display: none;
+        }
+        .chart-container h3, .network-container h3 {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Kubernetes Metrics Dashboard</h1>
+
+        <!-- Toggle Buttons -->
+        <button class="btn btn-primary collapse-button" data-target="#metrics-table">
+            Toggle Metrics Table
+        </button>
+        <button class="btn btn-secondary collapse-button" data-target="#metrics-charts">
+            Toggle Metrics Charts
+        </button>
+        <button class="btn btn-info collapse-button" data-target="#status-table">
+            Toggle Status
+        </button>
+        <button class="btn btn-warning collapse-button" data-target="#networking">
+            Toggle Networking
+        </button>
+
+        <!-- Metrics Table -->
+        <div id="metrics-table" class="table-container">
+            <h3>Metrics</h3>
+            <table id="metrics-data" class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th>Worker</th>
+                        <th>Pod</th>
+                        <th>CPU Usage</th>
+                        <th>Memory Usage</th>
+                        <th>Disk I/O</th>
+                        <th>Network Traffic</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Metrics Charts -->
+        <div id="metrics-charts" class="chart-container">
+            <h3>Metrics Charts</h3>
+            
+            <!-- Chart Type Selection -->
+            <div class="mb-3">
+                <label for="cpuChartType" class="form-label">Select CPU Usage Chart Type:</label>
+                <select id="cpuChartType" class="form-select">
+                    <option value="bar">Bar Chart</option>
+                    <option value="pie">Pie Chart</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="memoryChartType" class="form-label">Select Memory Usage Chart Type:</label>
+                <select id="memoryChartType" class="form-select">
+                    <option value="bar">Bar Chart</option>
+                    <option value="pie">Pie Chart</option>
+                </select>
+            </div>
+
+            <div>
+                <h4>CPU Usage Chart</h4>
+                <canvas id="cpuUsageChart" width="400" height="200"></canvas>
+                <h4>Memory Usage Chart</h4>
+                <canvas id="memoryUsageChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Networking -->
+        <div id="networking" class="network-container">
+            <h3>Networking</h3>
+            <div class="mb-3">
+                <label for="podSelect" class="form-label">Select Pod:</label>
+                <select id="podSelect" class="form-select">
+                    <option value="">Select a pod</option>
+                </select>
+            </div>
+            <h4>Network Traffic Chart</h4>
+            <canvas id="networkTrafficChart" width="400" height="200"></canvas>
+        </div>
+
+        <!-- Status Table -->
+        <div id="status-table" class="table-container">
+            <h3>Status</h3>
+            <table id="status-data" class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th>Pod</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        $(document).ready(function() {
+            let cpuChart = null;
+            let memoryChart = null;
+            let networkChart = null;
+
+            function fetchData() {
+                $.getJSON('/metrics', function(data) {
+                    console.log('Metrics Data:', data); // Debug: check data structure
+
+                    const metricsTable = $('#metrics-data tbody');
+                    metricsTable.empty();
+                    const cpuUsageData = [];
+                    const memoryUsageData = [];
+
+                    $.each(data, function(worker, pods) {
+                        $.each(pods, function(pod, values) {
+                            metricsTable.append(
+                                `<tr>
+                                    <td>${worker}</td>
+                                    <td>${pod}</td>
+                                    <td>${values.cpu_usage || 'N/A'}</td>
+                                    <td>${values.memory_usage || 'N/A'}</td>
+                                    <td>${values.disk_io || 'N/A'}</td>
+                                    <td>${values.network_traffic || 'N/A'}</td>
+                                </tr>`
+                            );
+
+                            // Prepare data for charts
+                            cpuUsageData.push({ label: `${worker}/${pod}`, value: parseFloat(values.cpu_usage) || 0 });
+                            memoryUsageData.push({ label: `${worker}/${pod}`, value: parseFloat(values.memory_usage) || 0 });
+                        });
+                    });
+
+                    // Draw charts
+                    drawCharts(cpuUsageData, memoryUsageData);
+                });
+
+                $.getJSON('/status', function(data) {
+                    console.log('Status Data:', data); // Debug: check status data structure
+                    const statusTable = $('#status-data tbody');
+                    statusTable.empty();
+                    $.each(data, function(pod, status) {
+                        statusTable.append(
+                            `<tr>
+                                <td>${pod}</td>
+                                <td style="color: ${status === 'Running' ? 'green' : 'red'};">${status}</td>
+                            </tr>`
+                        );
+                    });
+                });
+
+                $.getJSON('/pods', function(data) {
+                    const podSelect = $('#podSelect');
+                    podSelect.empty();
+                    podSelect.append('<option value="">Select a pod</option>');
+                    $.each(data.pods, function(index, pod) {
+                        podSelect.append(`<option value="${pod}">${pod}</option>`);
+                    });
+                });
+            }
+
+            function drawCharts(cpuData, memoryData) {
+                const cpuChartType = $('#cpuChartType').val();
+                const memoryChartType = $('#memoryChartType').val();
+                const cpuCtx = document.getElementById('cpuUsageChart').getContext('2d');
+                const memoryCtx = document.getElementById('memoryUsageChart').getContext('2d');
+
+                // Destroy existing charts if they exist
+                if (cpuChart) {
+                    cpuChart.destroy();
+                }
+                if (memoryChart) {
+                    memoryChart.destroy();
+                }
+
+                // Create CPU Usage Chart
+                cpuChart = new Chart(cpuCtx, {
+                    type: cpuChartType,
+                    data: {
+                        labels: cpuData.map(item => item.label),
+                        datasets: [{
+                            label: 'CPU Usage',
+                            data: cpuData.map(item => item.value),
+                            backgroundColor: cpuChartType === 'bar' ? 'rgba(75, 192, 192, 0.2)' : undefined,
+                            borderColor: cpuChartType === 'bar' ? 'rgba(75, 192, 192, 1)' : undefined,
+                            borderWidth: cpuChartType === 'bar' ? 1 : undefined
+                        }]
+                    },
+                    options: {
+                        scales: cpuChartType === 'bar' ? {
+                            y: {
+                                beginAtZero: true
+                            }
+                        } : {},
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: 'black'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'CPU Usage by Pod',
+                                color: '#333',
+                                font: {
+                                    size: 18
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Create Memory Usage Chart
+                memoryChart = new Chart(memoryCtx, {
+                    type: memoryChartType,
+                    data: {
+                        labels: memoryData.map(item => item.label),
+                        datasets: [{
+                            label: 'Memory Usage',
+                            data: memoryData.map(item => item.value),
+                            backgroundColor: memoryChartType === 'pie' ? [
+                                'rgba(255, 99, 132, 0.2)',
+                                'rgba(54, 162, 235, 0.2)',
+                                'rgba(255, 206, 86, 0.2)',
+                                'rgba(75, 192, 192, 0.2)',
+                                'rgba(153, 102, 255, 0.2)',
+                                'rgba(255, 159, 64, 0.2)'
+                            ] : undefined,
+                            borderColor: memoryChartType === 'pie' ? [
+                                'rgba(255, 99, 132, 1)',
+                                'rgba(54, 162, 235, 1)',
+                                'rgba(255, 206, 86, 1)',
+                                'rgba(75, 192, 192, 1)',
+                                'rgba(153, 102, 255, 1)',
+                                'rgba(255, 159, 64, 1)'
+                            ] : undefined,
+                            borderWidth: memoryChartType === 'pie' ? 1 : undefined
+                        }]
+                    },
+                    options: {
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: 'black'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Memory Usage by Pod',
+                                color: '#333',
+                                font: {
+                                    size: 18
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(tooltipItem) {
+                                        const dataLabel = tooltipItem.label || '';
+                                        const value = tooltipItem.raw || 0;
+                                        return `${dataLabel}: ${value.toFixed(2)} MB`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            function drawNetworkChart(networkData) {
+                const networkCtx = document.getElementById('networkTrafficChart').getContext('2d');
+
+                // Destroy existing chart if it exists
+                if (networkChart) {
+                    networkChart.destroy();
+                }
+
+                // Create Network Traffic Chart
+                networkChart = new Chart(networkCtx, {
+                    type: 'line',
+                    data: {
+                        labels: networkData.map(item => new Date(item.timestamp * 1000).toLocaleTimeString()), // Convert timestamp to time string
+                        datasets: [{
+                            label: 'Network Traffic',
+                            data: networkData.map(item => item.value),
+                            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                            borderColor: 'rgba(153, 102, 255, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Time',
+                                    color: '#333',
+                                    font: {
+                                        size: 14
+                                    }
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Network Traffic (units)',
+                                    color: '#333',
+                                    font: {
+                                        size: 14
+                                    }
+                                },
+                                beginAtZero: true
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: 'black'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Network Traffic Over Last 24 Hours',
+                                color: '#333',
+                                font: {
+                                    size: 18
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Event listener for chart type selection
+            $('#cpuChartType, #memoryChartType').on('change', function() {
+                fetchData(); // Re-fetch data and redraw charts
+            });
+
+            $('#podSelect').on('change', function() {
+                const selectedPod = $(this).val();
+                if (selectedPod) {
+                    $.getJSON(`/network/${selectedPod}`, function(data) {
+                        console.log('Network Data:', data); // Debug: check network data structure
+                        drawNetworkChart(data);
+                    });
+                }
+            });
+
+            $('.collapse-button').on('click', function() {
+                const target = $(this).data('target');
+                $(target).toggle();
+            });
+
+            fetchData();
+        });
+    </script>
+</body>
+</html>
